@@ -1,0 +1,50 @@
+name:                keyboard-stats
+version:             0.0.0
+synopsis:            Gather and produce statistics about keyboard typing habbits
+description:         Gather and produce statistics about keyboard typing habbits
+license:             BSD3
+license-file:        LICENSE
+author:              Chris Done
+maintainer:          chrisdone@gmail.com
+copyright:           2014 Chris Done
+category:            Quantified Self
+build-type:          Simple
+cabal-version:       >=1.8
+
+library
+  hs-source-dirs:    src/
+  exposed-modules:   Keyboard.Stats
+  ghc-options:       -Wall -O2 -threaded
+  build-depends:     base >= 4 && < 5
+                   , conduit >= 1.2.0.2
+                   , conduit >= 1.2.0.2
+                   , conduit-extra >= 1.1.3.4
+                   , csv-conduit >= 0.6.3
+                   , data-lens-light >= 0.1.2
+                   , lens
+                   , resourcet >= 1.1.2.2
+                   , text >= 0.11.3.1
+                   , time >= 1.4.2
+                   , transformers >= 0.3.0.0
+
+executable keyboard-stats
+  hs-source-dirs:    src/main/
+  ghc-options:       -Wall -O2 -threaded
+  main-is:           KeyboardStats.hs
+  build-depends:     base >= 4 && < 5
+                   , keyboard-stats
+                   , time >= 1.4.2
+
+executable xinput-keylogger
+  hs-source-dirs:    src/main/
+  ghc-options:       -Wall -O2 -threaded
+  main-is:           XInputKeylogger.hs
+  build-depends:     base >= 4 && < 5
+                   , bytestring >= 0.10.4.0
+                   , conduit >= 1.2.0.2
+                   , conduit-combinators >= 0.2.8.3
+                   , conduit-extra >= 1.1.3.4
+                   , resourcet >= 1.1.2.2
+                   , time >= 1.4.2
+                   , transformers >= 0.3.0.0
+                   , vector >= 0.10.9.1
