@@ -66,7 +66,9 @@ data Cluster =
 
 data Info =
   Info {infoPresses :: !Int
-       ,infoWpm :: !Int
+       ,infoAvgWpm :: !Int
+       ,infoMinWpm :: !Int
+       ,infoMaxWpm :: !Int
        ,infoStart :: !UTCTime
        ,infoEnd :: !UTCTime}
 
@@ -107,11 +109,18 @@ main =
 -- | Make the info used to generate the report.
 makeInfo :: UTCTime -> State -> Info
 makeInfo now state =
-  Info (_stateCount state)
-       (round (fromIntegral (foldl' (+) 0 (map wpm (_stateClusters state))) /
-               fromIntegral (length (_stateClusters state))))
-       (fromMaybe now (_stateStart state))
-       (fromMaybe now (_stateEnd state))
+  Info {infoPresses = (_stateCount state)
+       ,infoAvgWpm =
+          (round (fromIntegral (foldl' (+) 0 (map clusterWpm (_stateClusters state))) /
+                  fromIntegral (length (_stateClusters state))))
+       ,infoMinWpm =
+          (foldl' min 1000 (map clusterWpm (_stateClusters state)))
+       ,infoMaxWpm =
+          (foldl' max 0 (map clusterWpm (_stateClusters state)))
+       ,infoStart =
+          (fromMaybe now (_stateStart state))
+       ,infoEnd =
+          (fromMaybe now (_stateEnd state))}
 
 -- | Finalize the state ready for consumption.
 finalize :: State -> State
@@ -156,16 +165,8 @@ showCluster cluster@(Cluster start end avgDelay presses records keys) =
   (showNomDiff avgDelay) ++
   ", keys pressed: " ++
   (show presses) ++
-  ", wpm: " ++ show (wpm cluster) ++ "\n" ++
+  ", wpm: " ++ show (clusterWpm cluster) ++ "\n" ++
   " keys: " ++ join (map showKey keys)
-  where duration = diffUTCTime end start
-
-wpm (Cluster start end avgDelay presses records keys) =
-  if duration > 0
-     then round (((60 / toRational duration) *
-                  fromIntegral presses) /
-                 5)
-     else 0
   where duration = diffUTCTime end start
 
 showCluster' (Cluster start end avgDelay presses records keys) =
@@ -174,6 +175,18 @@ showCluster' (Cluster start end avgDelay presses records keys) =
         wpm = if duration > 0
                  then round (((60 / toRational duration) * fromIntegral presses) / 5)
                  else 0
+
+--------------------------------------------------------------------------------
+-- Cluster accessors
+
+clusterWpm :: Cluster -> Int
+clusterWpm (Cluster start end avgDelay presses records keys) =
+  if duration > 0
+     then round (((60 / toRational duration) *
+                  fromIntegral presses) /
+                 5)
+     else 0
+  where duration = diffUTCTime end start
 
 --------------------------------------------------------------------------------
 -- HTML report
@@ -202,7 +215,14 @@ intro =
                            " day reporting period, there were "
                            strong_ (toHtml (format commas (infoPresses info)))
                            " key presses with an average typing speed of "
-                           strong_ (do toHtml (format commas (infoWpm info))
+                           strong_ (do toHtml (format commas (infoAvgWpm info))
+                                       "wpm")
+                           " ("
+                           "min: "
+                           strong_ (do toHtml (format commas (infoMinWpm info))
+                                       "wpm")
+                           ", max: "
+                           strong_ (do toHtml (format commas (infoMaxWpm info))
                                        "wpm")
                            ".")))
 
