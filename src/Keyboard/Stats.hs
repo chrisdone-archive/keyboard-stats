@@ -62,23 +62,34 @@ main =
      r <- fmap (finalize .
                 flip push 0)
                (runResourceT
-                  (CB.sourceFile fp $= CT.decodeUtf8 $= CSV.intoCSV CSV.defCSVSettings $=
+                  (CB.sourceFile fp $= CT.decodeUtf8 $=
+                   CSV.intoCSV CSV.defCSVSettings $=
+                   takeN 20000 $=
                    CL.mapMaybe parse $$
                    CL.fold process (State 0 Nothing [] defaultCluster)))
-     {-print (_stateCount r)-}
      forM_ (view stateClusters r)
            (\c -> putStrLn (showCluster c))
+  where takeN = go
+          where go 0 = return ()
+                go n =
+                  do m <- await
+                     case m of
+                       Just p ->
+                         do yield p
+                            go (n - 1)
+                       Nothing -> return ()
 
 finalize =
   over stateClusters
        (reverse .
+        drop 1 .
         map (over clusterKeys reverse .
              over clusterRecords reverse))
 
 showCluster cluster@(Cluster start end avgDelay presses records keys) =
   "Cluster: " ++
-  "start: " ++ show start ++ ", " ++
-  "end: " ++ show end ++ ", " ++
+  "start: " ++ show start++ "(" ++ show (round (utcTimeToPOSIXSeconds start * 1000)) ++ ")"  ++ ", " ++
+  "end: " ++ show end ++ "(" ++ show (round (utcTimeToPOSIXSeconds end * 1000)) ++ ")" ++ ", " ++
   "duration: " ++
   showNomDiff duration ++
   ", avg delay: " ++

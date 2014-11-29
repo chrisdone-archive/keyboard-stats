@@ -39,12 +39,14 @@ executable xinput-keylogger
   hs-source-dirs:    src/main/
   ghc-options:       -Wall -O2 -threaded
   main-is:           XInputKeylogger.hs
-  build-depends:     base >= 4 && < 5
+  build-depends:     async >= 2.0.1.5
+                   , base >= 4 && < 5
                    , bytestring >= 0.10.4.0
                    , conduit >= 1.2.0.2
                    , conduit-combinators >= 0.2.8.3
                    , conduit-extra >= 1.1.3.4
                    , resourcet >= 1.1.2.2
+                   , shell-conduit >= 3.0
                    , time >= 1.4.2
                    , transformers >= 0.3.0.0
                    , vector >= 0.10.9.1
