@@ -1,7 +1,8 @@
 {-# LANGUAGE TemplateHaskell #-}
-{-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE ExtendedDefaultRules #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+
 {-# OPTIONS_GHC -fno-warn-type-defaults #-}
 
 -- | Generate keyboard typing statistics.
@@ -18,12 +19,16 @@ import qualified Data.Conduit.Binary as CB
 import qualified Data.Conduit.List as CL
 import qualified Data.Conduit.Text as CT
 import           Data.List
+import           Data.Monoid
 import           Data.Text (Text)
 import           Data.Text.Read
 import           Data.Time.Clock
 import           Data.Time.Clock.POSIX
 import           Lucid
 import           System.Environment
+
+--------------------------------------------------------------------------------
+-- Data types
 
 -- | Keyboard event.
 data Event
@@ -51,11 +56,8 @@ data Cluster =
 $(makeLenses ''State)
 $(makeLenses ''Cluster)
 
-defaultCluster :: Cluster
-defaultCluster = Cluster emptyUTCTime emptyUTCTime 0 0 [] []
-
-emptyUTCTime :: UTCTime
-emptyUTCTime = UTCTime (toEnum 0) 0
+--------------------------------------------------------------------------------
+-- Main entry point
 
 main :: IO ()
 main =
@@ -70,8 +72,9 @@ main =
                    CL.fold process (State 0 Nothing [] defaultCluster)))
      forM_ (view stateClusters r)
            (\c -> putStrLn (showCluster c))
-     renderToFile "/tmp/keyboard-stats.html"
-                  (doctypehtml_ (return ()))
+     renderToFile
+       "/tmp/keyboard-stats.html"
+       report
   where takeN = go
           where go 0 = return ()
                 go n =
@@ -82,12 +85,23 @@ main =
                             go (n - 1)
                        Nothing -> return ()
 
-finalize =
-  over stateClusters
-       (reverse .
-        drop 1 .
-        map (over clusterKeys reverse .
-             over clusterRecords reverse))
+--------------------------------------------------------------------------------
+-- Defaults
+
+defaultCluster :: Cluster
+defaultCluster = Cluster emptyUTCTime emptyUTCTime 0 0 [] []
+
+emptyUTCTime :: UTCTime
+emptyUTCTime = UTCTime (toEnum 0) 0
+
+bootstrapUrl :: Text
+bootstrapUrl = "//netdna.bootstrapcdn.com/twitter-bootstrap/2.3.2/css/bootstrap-combined.min.css"
+
+chrisdoneUrl :: Text
+chrisdoneUrl = "http://chrisdone.com/css/default.css"
+
+--------------------------------------------------------------------------------
+-- Debugging
 
 showCluster cluster@(Cluster start end avgDelay presses records keys) =
   "Cluster: " ++
@@ -118,6 +132,25 @@ showCluster' (Cluster start end avgDelay presses records keys) =
                  then round (((60 / toRational duration) * fromIntegral presses) / 5)
                  else 0
 
+--------------------------------------------------------------------------------
+-- HTML report
+
+report =
+  doctypehtml_
+    (do head_ (do script_ [src_ bootstrapUrl] ""
+                  script_ [src_ chrisdoneUrl] "")
+        body_ (return ()))
+
+finalize =
+  over stateClusters
+       (reverse .
+        drop 1 .
+        map (over clusterKeys reverse .
+             over clusterRecords reverse))
+
+--------------------------------------------------------------------------------
+-- Parsing
+
 parse :: [Text] -> Maybe (NominalDiffTime,Event,Int)
 parse [timestamp,event,keycode :: Text] =
   Just (case do t <- decimal timestamp
@@ -132,6 +165,9 @@ parse [timestamp,event,keycode :: Text] =
           Left err -> error err)
 parse [""]   = Nothing
 parse r = error ("Bad row: " ++ show r)
+
+--------------------------------------------------------------------------------
+-- Processing
 
 process :: State -> (NominalDiffTime, Event, Int) -> State
 process state record@(ts,event,_key) =
@@ -193,12 +229,18 @@ push s endt =
   where addEnd c =
           set clusterEnd (posixSecondsToUTCTime endt) c
 
+--------------------------------------------------------------------------------
+-- Time operations
+
 showNomDiff :: NominalDiffTime -> String
 showNomDiff i =
   if i < 1
      then show (round (fromRational (toRational i * 1000) :: Double)) ++
           "ms"
      else show i
+
+--------------------------------------------------------------------------------
+-- Key display
 
 showKey :: Int -> String
 showKey i =
