@@ -9,22 +9,31 @@
 
 module Keyboard.Stats where
 
+import qualified Blaze.ByteString.Builder as Blaze
+import           Control.Applicative
 import           Control.Lens (view,over,set)
 import           Control.Lens.TH (makeLenses)
 import           Control.Monad
+import           Control.Monad.Reader
 import           Control.Monad.Trans.Resource
+import qualified Data.ByteString.Lazy as L
 import qualified Data.CSV.Conduit as CSV
 import           Data.Conduit
 import qualified Data.Conduit.Binary as CB
 import qualified Data.Conduit.List as CL
 import qualified Data.Conduit.Text as CT
 import           Data.List
-import           Data.Monoid
+import           Data.Maybe
 import           Data.Text (Text)
-import           Data.Text.Read
+import qualified Data.Text.IO as T
+import           Data.Text.Read (decimal)
+import           Data.Time.Calendar
 import           Data.Time.Clock
 import           Data.Time.Clock.POSIX
+import           Formatting
 import           Lucid
+import           Lucid.Base
+import           Lucid.Bootstrap
 import           System.Environment
 
 --------------------------------------------------------------------------------
@@ -41,7 +50,9 @@ data State =
   State {_stateCount :: !Int
         ,_stateLastTs :: !(Maybe (NominalDiffTime,Event,Int))
         ,_stateClusters :: ![Cluster]
-        ,_stateCluster :: !Cluster}
+        ,_stateCluster :: !Cluster
+        ,_stateStart :: !(Maybe UTCTime)
+        ,_stateEnd :: !(Maybe UTCTime)}
   deriving (Show)
 
 data Cluster =
@@ -52,6 +63,12 @@ data Cluster =
           ,_clusterRecords :: ![(NominalDiffTime,Event,Int)]
           ,_clusterKeys :: ![Int]}
   deriving (Show)
+
+data Info =
+  Info {infoPresses :: !Int
+       ,infoWpm :: !Int
+       ,infoStart :: !UTCTime
+       ,infoEnd :: !UTCTime}
 
 $(makeLenses ''State)
 $(makeLenses ''Cluster)
@@ -66,15 +83,17 @@ main =
                 flip push 0)
                (runResourceT
                   (CB.sourceFile fp $= CT.decodeUtf8 $=
-                   CSV.intoCSV CSV.defCSVSettings $=
-                   takeN 20000 $=
+                   CSV.intoCSV CSV.defCSVSettings $= takeN maxRows $=
                    CL.mapMaybe parse $$
-                   CL.fold process (State 0 Nothing [] defaultCluster)))
-     forM_ (view stateClusters r)
-           (\c -> putStrLn (showCluster c))
-     renderToFile
-       "/tmp/keyboard-stats.html"
-       report
+                   CL.fold process (State 0 Nothing [] defaultCluster Nothing Nothing)))
+     when False
+          (forM_ (view stateClusters r)
+                 (\c -> putStrLn (showCluster c)))
+     style <- T.readFile "static/css/default.css"
+     now <- getCurrentTime
+     renderWithInfo "/tmp/keyboard-stats.html"
+                    (makeInfo now r)
+                    (report style)
   where takeN = go
           where go 0 = return ()
                 go n =
@@ -85,8 +104,29 @@ main =
                             go (n - 1)
                        Nothing -> return ()
 
+-- | Make the info used to generate the report.
+makeInfo :: UTCTime -> State -> Info
+makeInfo now state =
+  Info (_stateCount state)
+       (round (fromIntegral (foldl' (+) 0 (map wpm (_stateClusters state))) /
+               fromIntegral (length (_stateClusters state))))
+       (fromMaybe now (_stateStart state))
+       (fromMaybe now (_stateEnd state))
+
+-- | Finalize the state ready for consumption.
+finalize :: State -> State
+finalize =
+  over stateClusters
+       (reverse .
+        drop 1 .
+        map (over clusterKeys reverse .
+             over clusterRecords reverse))
+
 --------------------------------------------------------------------------------
 -- Defaults
+
+maxRows :: Integer
+maxRows = 200000
 
 defaultCluster :: Cluster
 defaultCluster = Cluster emptyUTCTime emptyUTCTime 0 0 [] []
@@ -95,10 +135,13 @@ emptyUTCTime :: UTCTime
 emptyUTCTime = UTCTime (toEnum 0) 0
 
 bootstrapUrl :: Text
-bootstrapUrl = "//netdna.bootstrapcdn.com/twitter-bootstrap/2.3.2/css/bootstrap-combined.min.css"
+bootstrapUrl = "http://netdna.bootstrapcdn.com/twitter-bootstrap/2.3.2/css/bootstrap-combined.min.css"
 
 chrisdoneUrl :: Text
 chrisdoneUrl = "http://chrisdone.com/css/default.css"
+
+merriweather :: Text
+merriweather = "http://fonts.googleapis.com/css?family=Merriweather"
 
 --------------------------------------------------------------------------------
 -- Debugging
@@ -135,18 +178,43 @@ showCluster' (Cluster start end avgDelay presses records keys) =
 --------------------------------------------------------------------------------
 -- HTML report
 
-report =
+report customStyle =
   doctypehtml_
-    (do head_ (do script_ [src_ bootstrapUrl] ""
-                  script_ [src_ chrisdoneUrl] "")
-        body_ (return ()))
+    (do head_ (do link_ [rel_ "stylesheet",type_ "text/css",href_ merriweather]
+                  link_ [rel_ "stylesheet",type_ "text/css",href_ bootstrapUrl]
+                  style_ customStyle)
+        body_ (container_
+                 (do header
+                     intro)))
 
-finalize =
-  over stateClusters
-       (reverse .
-        drop 1 .
-        map (over clusterKeys reverse .
-             over clusterRecords reverse))
+header =
+  row_ (span12_ (do h1_ "Typing Profile"
+                    p_ [class_ "author"]
+                       (do "By "
+                           a_ [href_ "http://chrisdone.com/"] "Chris Done")))
+
+intro =
+  do info <- lift ask
+     row_ (span12_ (p_ (do "During this "
+                           strong_ (toHtml (format commas
+                                                   (diffDays (utctDay (infoEnd info))
+                                                             (utctDay (infoStart info)))))
+                           " day reporting period, there were "
+                           strong_ (toHtml (format commas (infoPresses info)))
+                           " key presses with an average typing speed of "
+                           strong_ (do toHtml (format commas (infoWpm info))
+                                       "wpm")
+                           ".")))
+
+--------------------------------------------------------------------------------
+-- Lucid setup
+
+renderWithInfo :: FilePath -> Info -> HtmlT (Reader Info) a -> IO ()
+renderWithInfo fp info =
+  L.writeFile fp .
+  Blaze.toLazyByteString .
+  flip runReader info .
+  execHtmlT
 
 --------------------------------------------------------------------------------
 -- Parsing
@@ -171,7 +239,10 @@ parse r = error ("Bad row: " ++ show r)
 
 process :: State -> (NominalDiffTime, Event, Int) -> State
 process state record@(ts,event,_key) =
-  recluster (over stateCount (+ eventToCount) (set stateLastTs (Just record) state))
+  recluster ((over stateCount (+ eventToCount) .
+              set stateLastTs (Just record) .
+              set stateEnd (Just (posixSecondsToUTCTime ts)) .
+              over stateStart (<|> Just (posixSecondsToUTCTime ts))) state)
   where eventToCount =
           case event of
             Press -> 1
