@@ -8,20 +8,21 @@
 
 module Keyboard.Stats where
 
+import           Control.Lens (view,over,set)
+import           Control.Lens.TH (makeLenses)
 import           Control.Monad
 import           Control.Monad.Trans.Resource
 import qualified Data.CSV.Conduit as CSV
 import           Data.Conduit
 import qualified Data.Conduit.Binary as CB
-import qualified Data.Conduit.Text as CT
 import qualified Data.Conduit.List as CL
-import           Control.Lens.TH (makeLenses)
-import           Control.Lens (view,over,set)
+import qualified Data.Conduit.Text as CT
 import           Data.List
 import           Data.Text (Text)
 import           Data.Text.Read
 import           Data.Time.Clock
 import           Data.Time.Clock.POSIX
+import           Lucid
 import           System.Environment
 
 -- | Keyboard event.
@@ -69,6 +70,8 @@ main =
                    CL.fold process (State 0 Nothing [] defaultCluster)))
      forM_ (view stateClusters r)
            (\c -> putStrLn (showCluster c))
+     renderToFile "/tmp/keyboard-stats.html"
+                  (doctypehtml_ (return ()))
   where takeN = go
           where go 0 = return ()
                 go n =
