@@ -218,13 +218,11 @@ intro =
                            strong_ (do toHtml (format commas (infoAvgWpm info))
                                        "wpm")
                            " ("
-                           "min: "
-                           strong_ (do toHtml (format commas (infoMinWpm info))
-                                       "wpm")
-                           ", max: "
-                           strong_ (do toHtml (format commas (infoMaxWpm info))
-                                       "wpm")
-                           ".")))
+                           "min/max: "
+                           strong_ (toHtml (format commas (infoMinWpm info)))
+                           "/"
+                           strong_ (toHtml (format commas (infoMaxWpm info)))
+                           ").")))
 
 --------------------------------------------------------------------------------
 -- Lucid setup
